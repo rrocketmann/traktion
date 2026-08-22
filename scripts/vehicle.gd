@@ -55,7 +55,8 @@ func _physics_process(delta):
 	var direction = sign(linear_speed)
 	if direction == 0: direction = sign(input.z) if abs(input.z) > 0.1 else 1
 
-	var steering_grip = clamp(abs(linear_speed), 0.2, 1.0)
+	# No yaw at rest; grip ramps in after a little speed (linear_speed is ~0..1).
+	var steering_grip = clampf(inverse_lerp(0.12, 0.5, abs(linear_speed)), 0.0, 1.0)
 
 	var target_angular = -input.x * steering_grip * 4 * direction
 	angular_speed = lerp(angular_speed, target_angular, delta * 4)
@@ -81,13 +82,16 @@ func _physics_process(delta):
 
 	var target_speed = input.z
 
-	if (target_speed < 0 and linear_speed > 0.01):
-		linear_speed = lerp(linear_speed, 0.0, delta * 8)
-	else:
-		if (target_speed < 0):
-			linear_speed = lerp(linear_speed, target_speed / 2, delta * 2)
+	if target_speed > 0.1:
+		linear_speed = lerp(linear_speed, target_speed, delta * 6)
+	elif target_speed < -0.1:
+		if linear_speed > 0.01:
+			linear_speed = lerp(linear_speed, 0.0, delta * 8)
 		else:
-			linear_speed = lerp(linear_speed, target_speed, delta * 6)
+			linear_speed = lerp(linear_speed, target_speed / 2.0, delta * 2)
+	else:
+		# Coast with light rolling resistance; reverse/back is the brake.
+		linear_speed = lerp(linear_speed, 0.0, delta * 0.2)
 
 	acceleration = lerpf(acceleration, linear_speed + (abs(sphere.angular_velocity.length() * linear_speed) / 100), delta * 1)
 

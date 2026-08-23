@@ -44,26 +44,8 @@ func _ready() -> void:
 	_ghost_root = Node3D.new()
 	_ghost_root.name = "Ghosts"
 	add_child(_ghost_root)
-	_apply_web_look()
 	_load_times()
 	_enter_select()
-
-func _apply_web_look() -> void:
-	if not OS.has_feature("web"):
-		return
-	# Compatibility has no SSAO/SSIL, and glow blows out the solid sky.
-	var world := $Environment as WorldEnvironment
-	var env: Environment = world.environment.duplicate()
-	env.glow_enabled = false
-	env.ssao_enabled = false
-	env.ssil_enabled = false
-	env.tonemap_exposure = 0.58
-	env.background_energy_multiplier = 0.7
-	env.background_color = Color(0.46, 0.56, 0.78)
-	env.ambient_light_color = Color(0.38, 0.46, 0.56)
-	env.ambient_light_energy = 0.55
-	world.environment = env
-	$Sun.light_energy = 0.62
 
 func _process(delta: float) -> void:
 	if state != State.RACING:

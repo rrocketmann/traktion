@@ -10,12 +10,16 @@ class_name Vehicle extends Node3D
 @onready var vehicle_model = $Container
 @onready var vehicle_body = get_node_or_null("Container/Model/body")
 
-# (Optional) wheels
+# (Optional) wheels — rebound whenever the car model is swapped.
 
 @onready var wheel_fl = get_node_or_null("Container/Model/wheel-front-left")
 @onready var wheel_fr = get_node_or_null("Container/Model/wheel-front-right")
 @onready var wheel_bl = get_node_or_null("Container/Model/wheel-back-left")
 @onready var wheel_br = get_node_or_null("Container/Model/wheel-back-right")
+
+var wheels: Array[Node3D] = []
+var _wheel_rest: Dictionary = {}
+var _body_rest: Transform3D = Transform3D.IDENTITY
 
 # Effects
 
@@ -42,13 +46,131 @@ var prev_position: Vector3
 
 var calculated_lean: float
 
+var control_enabled: bool = false
+
 # Public Functions
 
+func _ready() -> void:
+	_bind_model_parts($Container.get_node_or_null("Model"))
+	set_frozen(true)
+
 func get_vehicle_position() -> Vector3: return vehicle_model.global_position
+
+func apply_model(packed: PackedScene) -> void:
+	if packed == null:
+		return
+	var old_model = $Container.get_node_or_null("Model")
+	var old_transform := Transform3D.IDENTITY
+	if old_model != null:
+		old_transform = old_model.transform
+		old_model.free()
+
+	var model = packed.instantiate()
+	model.name = "Model"
+	$Container.add_child(model)
+	$Container.move_child(model, 0)
+	model.transform = old_transform
+	_bind_model_parts(model)
+
+func _bind_model_parts(model: Node) -> void:
+	wheels.clear()
+	_wheel_rest.clear()
+	vehicle_body = null
+	wheel_fl = null
+	wheel_fr = null
+	wheel_bl = null
+	wheel_br = null
+	if model == null:
+		return
+	_scan_model(model)
+	if vehicle_body != null:
+		_body_rest = vehicle_body.transform
+
+func _scan_model(n: Node) -> void:
+	if n is MeshInstance3D:
+		_use_nearest_colors(n)
+	var key := String(n.name).to_lower()
+	if key == "body" and n is Node3D and vehicle_body == null:
+		vehicle_body = n
+	if key.begins_with("wheel") and n is Node3D:
+		var wheel := n as Node3D
+		wheels.append(wheel)
+		_wheel_rest[wheel] = wheel.transform
+		if key.contains("front") and key.contains("left"):
+			wheel_fl = wheel
+		elif key.contains("front") and key.contains("right"):
+			wheel_fr = wheel
+		elif key == "wheel-front" and wheel_fl == null:
+			wheel_fl = wheel
+		elif key.contains("back") and key.contains("left"):
+			wheel_bl = wheel
+		elif key.contains("back") and key.contains("right"):
+			wheel_br = wheel
+		elif key == "wheel-back" and wheel_bl == null:
+			wheel_bl = wheel
+	for child in n.get_children():
+		_scan_model(child)
+
+func _use_nearest_colors(mi: MeshInstance3D) -> void:
+	var mesh := mi.mesh
+	if mesh == null:
+		return
+	for i in mesh.get_surface_count():
+		var mat := mi.get_active_material(i)
+		if mat == null:
+			mat = mesh.surface_get_material(i)
+		if mat is BaseMaterial3D:
+			var dup := (mat as BaseMaterial3D).duplicate() as BaseMaterial3D
+			dup.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+			mi.set_surface_override_material(i, dup)
+
+func set_frozen(frozen: bool) -> void:
+	sphere.freeze = frozen
+	if frozen:
+		sphere.linear_velocity = Vector3.ZERO
+		sphere.angular_velocity = Vector3.ZERO
+		linear_speed = 0.0
+		acceleration = 0.0
+		angular_speed = 0.0
+		input = Vector3.ZERO
+
+func reset_to(spawn: Transform3D) -> void:
+	control_enabled = false
+	linear_speed = 0.0
+	acceleration = 0.0
+	angular_speed = 0.0
+	input = Vector3.ZERO
+	calculated_lean = 0.0
+	global_transform = spawn
+	var origin := spawn.origin + Vector3(0.0, 0.5, 0.0)
+	var xform := Transform3D(Basis.IDENTITY, origin)
+	sphere.freeze = true
+	sphere.sleeping = true
+	sphere.global_transform = xform
+	sphere.linear_velocity = Vector3.ZERO
+	sphere.angular_velocity = Vector3.ZERO
+	var rid := sphere.get_rid()
+	PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
+	PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY, Vector3.ZERO)
+	PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_ANGULAR_VELOCITY, Vector3.ZERO)
+	PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_SLEEPING, true)
+	vehicle_model.global_transform = Transform3D(Basis.IDENTITY, spawn.origin)
+	raycast.global_position = origin
+	if vehicle_body != null:
+		vehicle_body.transform = _body_rest
+	for wheel in wheels:
+		if _wheel_rest.has(wheel):
+			wheel.transform = _wheel_rest[wheel]
+	prev_position = vehicle_model.position
+
 
 # Functions
 
 func _physics_process(delta):
+
+	if sphere.freeze:
+		vehicle_model.global_transform = Transform3D(Basis.IDENTITY, sphere.global_position - Vector3(0.0, 0.65, 0.0))
+		return
 
 	handle_input(delta)
 
@@ -67,7 +189,7 @@ func _physics_process(delta):
 
 	if raycast.is_colliding():
 		if !colliding:
-			if vehicle_body != null: vehicle_body.position = Vector3(0, 0.1, 0) # Bounce
+			if vehicle_body != null: vehicle_body.position = _body_rest.origin + Vector3(0, 0.1, 0) # Bounce
 			input.z = 0
 
 		normal = raycast.get_collision_normal()
@@ -81,9 +203,11 @@ func _physics_process(delta):
 	colliding = raycast.is_colliding()
 
 	var target_speed = input.z
+	var turn := absf(input.x)
 
 	if target_speed > 0.1:
-		linear_speed = lerp(linear_speed, target_speed, delta * 6)
+		target_speed *= lerpf(1.0, 0.78, turn)
+		linear_speed = lerp(linear_speed, target_speed, delta * 7.5)
 	elif target_speed < -0.1:
 		if linear_speed > 0.01:
 			linear_speed = lerp(linear_speed, 0.0, delta * 8)
@@ -92,6 +216,9 @@ func _physics_process(delta):
 	else:
 		# Coast with light rolling resistance; reverse/back is the brake.
 		linear_speed = lerp(linear_speed, 0.0, delta * 0.2)
+
+	if turn > 0.05 and absf(linear_speed) > 0.05:
+		linear_speed -= linear_speed * turn * delta * 0.9
 
 	acceleration = lerpf(acceleration, linear_speed + (abs(sphere.angular_velocity.length() * linear_speed) / 100), delta * 1)
 
@@ -116,11 +243,25 @@ func _physics_process(delta):
 
 func handle_input(delta):
 
-	if raycast.is_colliding():
+	if control_enabled and raycast.is_colliding():
 		input.x = Input.get_axis("left", "right")
 		input.z = Input.get_axis("back", "forward")
+	else:
+		input.x = 0.0
+		if not control_enabled:
+			input.z = 0.0
 
-	sphere.angular_velocity += vehicle_model.get_global_transform().basis.x * (linear_speed * 100) * delta
+	sphere.angular_velocity += vehicle_model.get_global_transform().basis.x * (linear_speed * 165) * delta
+
+	# Asphalt grip: kill sideways slide so the sphere follows the car heading.
+	var fwd: Vector3 = vehicle_model.global_basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() > 0.0001:
+		fwd = fwd.normalized()
+		var right := Vector3.UP.cross(fwd)
+		var vel := sphere.linear_velocity
+		var lat := vel.dot(right)
+		sphere.linear_velocity -= right * lat * clampf(12.0 * delta, 0.0, 1.0)
 
 func effect_body(delta):
 	
@@ -130,23 +271,20 @@ func effect_body(delta):
 	
 	if vehicle_body != null:
 		
-		vehicle_body.rotation.x = lerp_angle(vehicle_body.rotation.x, -(linear_speed - acceleration) / 6, delta * 10)
-		vehicle_body.rotation.z = calculated_lean
+		vehicle_body.rotation.x = lerp_angle(vehicle_body.rotation.x, _body_rest.basis.get_euler().x - (linear_speed - acceleration) / 6, delta * 10)
+		vehicle_body.rotation.z = _body_rest.basis.get_euler().z + calculated_lean
 		
-		vehicle_body.position = vehicle_body.position.lerp(Vector3(0, 0.2, 0), delta * 5)
+		vehicle_body.position = vehicle_body.position.lerp(_body_rest.origin, delta * 5)
 	
 func effect_wheels(delta):
 
-	# Rotate wheels based on acceleration
-
-	for wheel in [wheel_fl, wheel_fr, wheel_bl, wheel_br]:
-		if wheel != null:
-			wheel.rotation.x += acceleration
-
-	# Rotate front wheels based on steering direction
-
-	if wheel_fl != null: wheel_fl.rotation.y = lerp_angle(wheel_fl.rotation.y, -input.x / 1.5, delta * 10)
-	if wheel_fr != null: wheel_fr.rotation.y = lerp_angle(wheel_fr.rotation.y, -input.x / 1.5, delta * 10)
+	for wheel in wheels:
+		wheel.rotation.x += acceleration
+		var rest: Transform3D = _wheel_rest[wheel] if _wheel_rest.has(wheel) else wheel.transform
+		var rest_y := rest.basis.get_euler().y
+		var is_front := String(wheel.name).to_lower().contains("front")
+		var steer := -input.x / 1.5 if is_front else 0.0
+		wheel.rotation.y = lerp_angle(wheel.rotation.y, rest_y + steer, delta * 10)
 
 # Engine sounds
 

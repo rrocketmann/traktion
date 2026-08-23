@@ -10,7 +10,13 @@ Arcade racing in Godot 4.7. Built on Kenney's racing starter kit: pick a car, ru
 
 ### Play
 
-Open the project in **Godot 4.7** and run `scenes/main.tscn`.
+[Play in the browser](https://rrocketmann.github.io/traktion/) on GitHub Pages.
+
+Or open the project in **Godot 4.7** and run `scenes/main.tscn`. Re-export the web build with:
+
+```bash
+godot --headless --export-release Web docs/index.html
+```
 
 On the menu the camera orbits the car. Use the on-screen arrows to choose a vehicle, then **START**.
 

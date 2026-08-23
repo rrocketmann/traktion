@@ -25,6 +25,8 @@ config/icon="res://icon.png"
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+window/stretch/mode.web="viewport"
+window/stretch/aspect.web="keep"
 
 [editor]
 

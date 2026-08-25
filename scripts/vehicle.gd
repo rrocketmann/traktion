@@ -3,7 +3,13 @@ class_name Vehicle extends Node3D
 # Nodes
 
 @onready var sphere: RigidBody3D = $Sphere
+@onready var collision_shape: CollisionShape3D = $Sphere/CollisionShape
 @onready var raycast: RayCast3D = $Ground
+
+const DRIVE_SPEED := 14.0
+const COLLIDER_CLEARANCE := 0.06
+
+var _collider_center := Vector3(0.0, 0.65, 0.0)
 
 # Vehicle elements
 
@@ -85,6 +91,7 @@ func _bind_model_parts(model: Node) -> void:
 	_scan_model(model)
 	if vehicle_body != null:
 		_body_rest = vehicle_body.transform
+	_fit_collider(model)
 
 func _scan_model(n: Node) -> void:
 	if n is MeshInstance3D:
@@ -124,6 +131,49 @@ func _use_nearest_colors(mi: MeshInstance3D) -> void:
 			dup.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 			mi.set_surface_override_material(i, dup)
 
+func _fit_collider(model: Node) -> void:
+	var aabb := _model_aabb(model)
+	if aabb.size.x < 0.05 or aabb.size.y < 0.05 or aabb.size.z < 0.05:
+		aabb = AABB(Vector3(-0.6, 0.1, -1.2), Vector3(1.2, 0.7, 2.4))
+	# Body hull only — lift off the asphalt so wheels stay visual and the box does not rest on the road.
+	if aabb.position.y < COLLIDER_CLEARANCE:
+		var lift := COLLIDER_CLEARANCE - aabb.position.y
+		aabb.position.y += lift
+		aabb.size.y = maxf(aabb.size.y - lift, 0.2)
+	_collider_center = aabb.get_center()
+	var box := collision_shape.shape as BoxShape3D
+	if box == null:
+		box = BoxShape3D.new()
+		collision_shape.shape = box
+	box.size = aabb.size
+	collision_shape.position = Vector3.ZERO
+
+func _model_aabb(model: Node) -> AABB:
+	var meshes: Array[MeshInstance3D] = []
+	_gather_body_meshes(model, meshes)
+	var acc := AABB()
+	var any := false
+	if not model is Node3D:
+		return acc
+	var mroot := model as Node3D
+	for mi in meshes:
+		var xf := mroot.global_transform.affine_inverse() * mi.global_transform
+		var local := xf * mi.mesh.get_aabb()
+		if not any:
+			acc = local
+			any = true
+		else:
+			acc = acc.merge(local)
+	return acc
+
+func _gather_body_meshes(n: Node, meshes: Array[MeshInstance3D]) -> void:
+	if String(n.name).to_lower().begins_with("wheel"):
+		return
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+		meshes.append(n)
+	for child in n.get_children():
+		_gather_body_meshes(child, meshes)
+
 func set_frozen(frozen: bool) -> void:
 	sphere.freeze = frozen
 	if frozen:
@@ -142,7 +192,7 @@ func reset_to(spawn: Transform3D) -> void:
 	input = Vector3.ZERO
 	calculated_lean = 0.0
 	global_transform = spawn
-	var origin := spawn.origin + Vector3(0.0, 0.5, 0.0)
+	var origin := spawn.origin + spawn.basis * _collider_center
 	var xform := Transform3D(Basis.IDENTITY, origin)
 	sphere.freeze = true
 	sphere.sleeping = true
@@ -169,9 +219,12 @@ func reset_to(spawn: Transform3D) -> void:
 func _physics_process(delta):
 
 	if sphere.freeze:
-		vehicle_model.global_transform = Transform3D(Basis.IDENTITY, sphere.global_position - Vector3(0.0, 0.65, 0.0))
+		_sync_visual_to_body()
 		return
 
+	raycast.global_position = sphere.global_position
+	raycast.force_raycast_update()
+	_stick_to_ground()
 	handle_input(delta)
 
 	var direction = sign(linear_speed)
@@ -220,12 +273,11 @@ func _physics_process(delta):
 	if turn > 0.05 and absf(linear_speed) > 0.05:
 		linear_speed -= linear_speed * turn * delta * 0.9
 
-	acceleration = lerpf(acceleration, linear_speed + (abs(sphere.angular_velocity.length() * linear_speed) / 100), delta * 1)
+	acceleration = lerpf(acceleration, linear_speed, delta * 1)
 
-	# Match vehicle model to physics sphere
-
-	vehicle_model.position = sphere.position - Vector3(0, 0.65, 0)
-	raycast.position = sphere.position
+	_sync_body_yaw()
+	_sync_visual_to_body()
+	raycast.global_position = sphere.global_position
 
 	# Calculate vehicle model linear velocity
 
@@ -251,17 +303,20 @@ func handle_input(delta):
 		if not control_enabled:
 			input.z = 0.0
 
-	sphere.angular_velocity += vehicle_model.get_global_transform().basis.x * (linear_speed * 165) * delta
-
-	# Asphalt grip: kill sideways slide so the sphere follows the car heading.
+	# Drive the box along heading. A spinning collider climbs walls; linear motion does not.
 	var fwd: Vector3 = vehicle_model.global_basis.z
 	fwd.y = 0.0
 	if fwd.length_squared() > 0.0001:
 		fwd = fwd.normalized()
 		var right := Vector3.UP.cross(fwd)
 		var vel := sphere.linear_velocity
+		var along := vel.dot(fwd)
 		var lat := vel.dot(right)
-		sphere.linear_velocity -= right * lat * clampf(12.0 * delta, 0.0, 1.0)
+		along = lerpf(along, linear_speed * DRIVE_SPEED, clampf(delta * 8.0, 0.0, 1.0))
+		lat *= 1.0 - clampf(12.0 * delta, 0.0, 1.0)
+		var vertical := 0.0 if raycast.is_colliding() else vel.y
+		sphere.linear_velocity = fwd * along + right * lat + Vector3.UP * vertical
+	sphere.angular_velocity = Vector3.ZERO
 
 func effect_body(delta):
 	
@@ -316,6 +371,37 @@ func effect_trails():
 
 	screech_sound.pitch_scale = lerp(screech_sound.pitch_scale, clamp(abs(linear_speed), 1.0, 3.0), 0.1)
 	screech_sound.volume_db = lerp(screech_sound.volume_db, target_volume, 10.0 * get_physics_process_delta_time())
+
+func _heading_yaw() -> float:
+	var fwd: Vector3 = vehicle_model.global_basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() < 0.0001:
+		return 0.0
+	fwd = fwd.normalized()
+	return atan2(fwd.x, fwd.z)
+
+func _sync_body_yaw() -> void:
+	var xform := sphere.global_transform
+	xform.basis = Basis(Vector3.UP, _heading_yaw())
+	sphere.global_transform = xform
+	PhysicsServer3D.body_set_state(sphere.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
+
+func _sync_visual_to_body() -> void:
+	var yaw_basis := Basis(Vector3.UP, _heading_yaw())
+	vehicle_model.global_position = sphere.global_position - yaw_basis * _collider_center
+
+func _stick_to_ground() -> void:
+	if not raycast.is_colliding():
+		return
+	var desired_y := raycast.get_collision_point().y + _collider_center.y
+	var xform := sphere.global_transform
+	xform.origin.y = desired_y
+	sphere.global_transform = xform
+	PhysicsServer3D.body_set_state(sphere.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
+	var vel := sphere.linear_velocity
+	if vel.y > 0.0:
+		vel.y = 0.0
+		sphere.linear_velocity = vel
 
 # Align vehicle with normal
 

@@ -21,31 +21,28 @@ html, body {
 	margin: 0;
 	padding: 0;
 	border: 0;
+	width: 100%;
 	height: 100%;
 	background: var(--page-bg);
 }
 
 body {
 	color: white;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	overflow: auto;
+	overflow: hidden;
 	touch-action: none;
 }
 
 #stage {
 	position: relative;
-	width: 1280px;
-	height: 720px;
-	margin: 24px;
-	flex: 0 0 auto;
+	width: 100%;
+	height: 100%;
+	margin: 0;
 }
 
 #canvas {
 	display: block;
-	width: 1280px;
-	height: 720px;
+	width: 100%;
+	height: 100%;
 	margin: 0;
 	padding: 0;
 	border: 0;
@@ -141,7 +138,7 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":1,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":2376892,"index.wasm":39513091},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":2379324,"index.wasm":39513091},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 

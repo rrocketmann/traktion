@@ -7,7 +7,7 @@ extends Vehicle
 @onready var wheel_back = $"Container/Model/motorcycle/wheel-back"
 
 func _ready():
-	
+	super._ready()
 	vehicle_body = $Container/Model/motorcycle/body
 
 # Overwrite functions from base vehicle script

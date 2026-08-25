@@ -9,8 +9,10 @@ class_name Vehicle extends Node3D
 const DRIVE_SPEED := 22.0
 const STEER_RATE := 4.0
 const COLLIDER_CLEARANCE := 0.06
+const GROUND_PLANT := 0.15
 
 var _collider_center := Vector3(0.0, 0.65, 0.0)
+var _ride_drop := GROUND_PLANT
 
 # Vehicle elements
 
@@ -148,10 +150,13 @@ func _fit_collider(model: Node) -> void:
 		collision_shape.shape = box
 	box.size = aabb.size
 	collision_shape.position = Vector3.ZERO
+	var full := _model_aabb(model, false)
+	var floor_y := full.position.y if full.size.y > 0.05 else 0.0
+	_ride_drop = GROUND_PLANT + floor_y
 
-func _model_aabb(model: Node) -> AABB:
+func _model_aabb(model: Node, skip_wheels: bool = true) -> AABB:
 	var meshes: Array[MeshInstance3D] = []
-	_gather_body_meshes(model, meshes)
+	_gather_body_meshes(model, meshes, skip_wheels)
 	var acc := AABB()
 	var any := false
 	if not model is Node3D:
@@ -167,13 +172,13 @@ func _model_aabb(model: Node) -> AABB:
 			acc = acc.merge(local)
 	return acc
 
-func _gather_body_meshes(n: Node, meshes: Array[MeshInstance3D]) -> void:
-	if String(n.name).to_lower().begins_with("wheel"):
+func _gather_body_meshes(n: Node, meshes: Array[MeshInstance3D], skip_wheels: bool = true) -> void:
+	if skip_wheels and String(n.name).to_lower().begins_with("wheel"):
 		return
 	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
 		meshes.append(n)
 	for child in n.get_children():
-		_gather_body_meshes(child, meshes)
+		_gather_body_meshes(child, meshes, skip_wheels)
 
 func set_frozen(frozen: bool) -> void:
 	sphere.freeze = frozen
@@ -210,7 +215,7 @@ func reset_to(spawn: Transform3D) -> void:
 	PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY, Vector3.ZERO)
 	PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_ANGULAR_VELOCITY, Vector3.ZERO)
 	PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_SLEEPING, true)
-	vehicle_model.global_transform = Transform3D(Basis.IDENTITY, spawn.origin)
+	vehicle_model.global_transform = Transform3D(Basis.IDENTITY, spawn.origin - Vector3(0.0, _ride_drop, 0.0))
 	raycast.global_position = origin
 	if vehicle_body != null:
 		vehicle_body.transform = _body_rest
@@ -413,7 +418,7 @@ func _sync_body_yaw() -> void:
 
 func _sync_visual_to_body() -> void:
 	var yaw_basis := Basis(Vector3.UP, _heading_yaw())
-	vehicle_model.global_position = sphere.global_position - yaw_basis * _collider_center
+	vehicle_model.global_position = sphere.global_position - yaw_basis * _collider_center - Vector3(0.0, _ride_drop, 0.0)
 
 func _stick_to_ground() -> void:
 	if not raycast.is_colliding():

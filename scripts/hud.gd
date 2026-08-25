@@ -4,6 +4,10 @@ signal start_pressed
 signal next_car
 signal prev_car
 signal restart_pressed
+signal prev_laps
+signal next_laps
+signal prev_mode
+signal next_mode
 
 const FONT_PATH := "res://ui/kenney/Kenney Future.ttf"
 
@@ -11,10 +15,15 @@ const FONT_PATH := "res://ui/kenney/Kenney Future.ttf"
 @onready var car_name_label: Label = $Select/Bar/HBox/CarName
 @onready var times_panel: Control = $Select/TimesPanel
 @onready var times_label: Label = $Select/TimesPanel/Times
+@onready var laps_value: Label = $Select/Settings/HBox/LapsValue
+@onready var mode_value: Label = $Select/Settings/HBox/ModeValue
 @onready var race_root: Control = $Race
 @onready var time_label: Label = $Race/Time
+@onready var lap_label: Label = $Race/Lap
 @onready var result_root: Control = $Result
+@onready var result_caption: Label = $Result/Panel/VBox/ResultCaption
 @onready var result_time: Label = $Result/Panel/VBox/ResultTime
+@onready var result_laps: Label = $Result/Panel/VBox/ResultLaps
 
 func _ready() -> void:
 	_apply_theme()
@@ -50,24 +59,37 @@ func _apply_theme() -> void:
 	_style_label($Select/Title, font, 36)
 	_style_label(times_label, font, 18)
 	_style_label(car_name_label, font, 24)
+	_style_label($Select/Settings/HBox/LapsLabel, font, 16)
+	_style_label(laps_value, font, 22)
+	_style_label($Select/Settings/HBox/ModeLabel, font, 16)
+	_style_label(mode_value, font, 22)
 	_style_label(time_label, font, 36)
+	_style_label(lap_label, font, 18)
+	_style_label(result_caption, font, 18)
 	_style_label(result_time, font, 40)
+	_style_label(result_laps, font, 16)
 
-	for button in [$Select/Bar/HBox/Prev, $Select/Bar/HBox/Next, $Select/Bar/HBox/Start, $Result/Panel/VBox/Restart]:
+	var buttons: Array = [
+		$Select/Bar/HBox/Prev, $Select/Bar/HBox/Next, $Select/Bar/HBox/Start,
+		$Select/Settings/HBox/LapsPrev, $Select/Settings/HBox/LapsNext,
+		$Select/Settings/HBox/ModePrev, $Select/Settings/HBox/ModeNext,
+		$Result/Panel/VBox/Restart,
+	]
+	for button in buttons:
 		_style_button(button, font)
 
-	var prev: Button = $Select/Bar/HBox/Prev
-	var next: Button = $Select/Bar/HBox/Next
 	var left_tex: Texture2D = load("res://ui/kenney/arrow_w_white.png")
 	var right_tex: Texture2D = load("res://ui/kenney/arrow_e_white.png")
-	if left_tex != null:
-		prev.icon = left_tex
-		prev.text = ""
-		prev.expand_icon = true
-	if right_tex != null:
-		next.icon = right_tex
-		next.text = ""
-		next.expand_icon = true
+	for prev in [$Select/Bar/HBox/Prev, $Select/Settings/HBox/LapsPrev, $Select/Settings/HBox/ModePrev]:
+		if left_tex != null:
+			prev.icon = left_tex
+			prev.text = ""
+			prev.expand_icon = true
+	for next in [$Select/Bar/HBox/Next, $Select/Settings/HBox/LapsNext, $Select/Settings/HBox/ModeNext]:
+		if right_tex != null:
+			next.icon = right_tex
+			next.text = ""
+			next.expand_icon = true
 
 func _glass(fill: Color, border: Color, radius: int) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
@@ -98,12 +120,17 @@ func _style_button(button: Button, font: Font) -> void:
 	button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.45))
 	button.add_theme_constant_override("outline_size", 8)
 
-func show_select(car_name: String, times: Array = []) -> void:
+func show_select(car_name: String, times: Array = [], laps: int = 3, mode_name: String = "AVERAGE") -> void:
 	select_root.visible = true
 	race_root.visible = false
 	result_root.visible = false
 	set_car_name(car_name)
+	set_race_options(laps, mode_name)
 	set_recent_times(times)
+
+func set_race_options(laps: int, mode_name: String) -> void:
+	laps_value.text = str(laps)
+	mode_value.text = mode_name.to_upper()
 
 func set_car_name(car_name: String) -> void:
 	car_name_label.text = car_name.to_upper()
@@ -129,16 +156,27 @@ func show_race() -> void:
 	race_root.visible = true
 	result_root.visible = false
 	set_time(0.0)
+	set_lap_info("LAP 1/1")
 
 func set_time(seconds: float) -> void:
 	time_label.text = _format_time(seconds)
 
-func show_result(seconds: float) -> void:
+func set_lap_info(text: String) -> void:
+	lap_label.text = text
+
+func show_result(seconds: float, caption: String = "", lap_lines: String = "") -> void:
 	select_root.visible = false
 	race_root.visible = true
 	result_root.visible = true
+	result_caption.text = caption
+	result_caption.visible = not caption.is_empty()
 	result_time.text = _format_time(seconds)
+	result_laps.text = lap_lines
+	result_laps.visible = not lap_lines.is_empty()
 	time_label.text = _format_time(seconds)
+
+func format_time(seconds: float) -> String:
+	return _format_time(seconds)
 
 func _format_time(seconds: float) -> String:
 	var minutes := int(seconds) / 60
@@ -156,3 +194,15 @@ func _on_next_pressed() -> void:
 
 func _on_restart_pressed() -> void:
 	restart_pressed.emit()
+
+func _on_laps_prev_pressed() -> void:
+	prev_laps.emit()
+
+func _on_laps_next_pressed() -> void:
+	next_laps.emit()
+
+func _on_mode_prev_pressed() -> void:
+	prev_mode.emit()
+
+func _on_mode_next_pressed() -> void:
+	next_mode.emit()

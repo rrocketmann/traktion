@@ -18,10 +18,10 @@ friction = 1.0
 bounce = 0.0
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_finish"]
-size = Vector3(10, 4, 1.2)
+size = Vector3(14, 8, 5)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_check"]
-size = Vector3(18, 4, 18)
+size = Vector3(28, 8, 28)
 
 [node name="Main" type="Node3D" unique_id=1145999287]
 script = ExtResource("12_race")
@@ -102,5 +102,9 @@ shape = SubResource("BoxShape3D_check")
 [connection signal="next_car" from="HUD" to="." method="_on_hud_next_car"]
 [connection signal="prev_car" from="HUD" to="." method="_on_hud_prev_car"]
 [connection signal="restart_pressed" from="HUD" to="." method="_on_hud_restart_pressed"]
+[connection signal="prev_laps" from="HUD" to="." method="_on_hud_prev_laps"]
+[connection signal="next_laps" from="HUD" to="." method="_on_hud_next_laps"]
+[connection signal="prev_mode" from="HUD" to="." method="_on_hud_prev_mode"]
+[connection signal="next_mode" from="HUD" to="." method="_on_hud_next_mode"]
 [connection signal="body_entered" from="Finish" to="." method="_on_finish_body_entered"]
 [connection signal="body_entered" from="Checkpoint" to="." method="_on_checkpoint_body_entered"]

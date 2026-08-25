@@ -6,7 +6,8 @@ class_name Vehicle extends Node3D
 @onready var collision_shape: CollisionShape3D = $Sphere/CollisionShape
 @onready var raycast: RayCast3D = $Ground
 
-const DRIVE_SPEED := 14.0
+const DRIVE_SPEED := 22.0
+const STEER_RATE := 4.0
 const COLLIDER_CLEARANCE := 0.06
 
 var _collider_center := Vector3(0.0, 0.65, 0.0)
@@ -183,6 +184,11 @@ func set_frozen(frozen: bool) -> void:
 		acceleration = 0.0
 		angular_speed = 0.0
 		input = Vector3.ZERO
+		_silence_screech()
+		if trail_left != null:
+			trail_left.emitting = false
+		if trail_right != null:
+			trail_right.emitting = false
 
 func reset_to(spawn: Transform3D) -> void:
 	control_enabled = false
@@ -227,14 +233,17 @@ func _physics_process(delta):
 	_stick_to_ground()
 	handle_input(delta)
 
-	var direction = sign(linear_speed)
-	if direction == 0: direction = sign(input.z) if abs(input.z) > 0.1 else 1
+	var direction := signf(linear_speed)
+	if direction == 0.0:
+		direction = signf(input.z) if absf(input.z) > 0.1 else 1.0
 
-	# No yaw at rest; grip ramps in after a little speed (linear_speed is ~0..1).
-	var steering_grip = clampf(inverse_lerp(0.12, 0.5, abs(linear_speed)), 0.0, 1.0)
+	# No yaw at rest; full steer in the mid range, then it tightens as speed climbs.
+	var speed_abs := absf(linear_speed)
+	var steering_grip := clampf(inverse_lerp(0.12, 0.4, speed_abs), 0.0, 1.0)
+	var speed_steer := lerpf(1.0, 0.32, clampf(inverse_lerp(0.4, 1.0, speed_abs), 0.0, 1.0))
 
-	var target_angular = -input.x * steering_grip * 4 * direction
-	angular_speed = lerp(angular_speed, target_angular, delta * 4)
+	var target_angular: float = -input.x * steering_grip * speed_steer * STEER_RATE * direction
+	angular_speed = lerp(angular_speed, target_angular, delta * lerpf(5.0, 2.2, clampf(speed_abs, 0.0, 1.0)))
 
 	vehicle_model.rotate_y(angular_speed * delta)
 
@@ -260,7 +269,7 @@ func _physics_process(delta):
 
 	if target_speed > 0.1:
 		target_speed *= lerpf(1.0, 0.78, turn)
-		linear_speed = lerp(linear_speed, target_speed, delta * 7.5)
+		linear_speed = lerp(linear_speed, target_speed, delta * 8.5)
 	elif target_speed < -0.1:
 		if linear_speed > 0.01:
 			linear_speed = lerp(linear_speed, 0.0, delta * 8)
@@ -359,6 +368,13 @@ func effect_engine(delta):
 # Show trails (and play skid sound)
 
 func effect_trails():
+	if sphere.freeze or not control_enabled:
+		_silence_screech()
+		if trail_left != null:
+			trail_left.emitting = false
+		if trail_right != null:
+			trail_right.emitting = false
+		return
 
 	var drift_intensity = abs(linear_speed - acceleration) + (abs(calculated_lean) * 2.0)
 	var should_emit = drift_intensity > 0.25
@@ -367,10 +383,19 @@ func effect_trails():
 	if trail_right != null: trail_right.emitting = should_emit
 
 	var target_volume = -80.0
-	if should_emit: target_volume = remap(clamp(drift_intensity, 0.25, 2.0), 0.25, 2.0, -10.0, 0.0)
+	if should_emit:
+		target_volume = remap(clamp(drift_intensity, 0.25, 2.0), 0.25, 2.0, -10.0, 0.0)
+		if not screech_sound.playing:
+			screech_sound.play()
 
 	screech_sound.pitch_scale = lerp(screech_sound.pitch_scale, clamp(abs(linear_speed), 1.0, 3.0), 0.1)
 	screech_sound.volume_db = lerp(screech_sound.volume_db, target_volume, 10.0 * get_physics_process_delta_time())
+	if not should_emit and screech_sound.volume_db < -40.0:
+		screech_sound.stop()
+
+func _silence_screech() -> void:
+	screech_sound.stop()
+	screech_sound.volume_db = -80.0
 
 func _heading_yaw() -> float:
 	var fwd: Vector3 = vehicle_model.global_basis.z

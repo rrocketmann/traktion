@@ -93,7 +93,7 @@ draw_pass_1 = SubResource("QuadMesh_68fxn")
 
 [node name="ScreechSound" type="AudioStreamPlayer3D" parent="Container" unique_id=1640227385]
 stream = ExtResource("4_mcce1")
-autoplay = true
+volume_db = -80.0
 
 [node name="EngineSound" type="AudioStreamPlayer3D" parent="Container" unique_id=397905471]
 stream = ExtResource("5_kcati")
